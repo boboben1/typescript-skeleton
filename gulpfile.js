@@ -31,6 +31,27 @@ const parcelBuild = (file, target) =>
         });
     });
 
+const doc = () =>
+    new Promise((resolve, reject) => {
+        const parcel = spawn('typedoc', ['--out', './doc'], {
+            shell: true,
+        });
+
+        parcel.stderr.pipe(process.stderr);
+        parcel.stdout.pipe(process.stdout);
+
+        parcel.once('exit', number => {
+            if (number == 0) {
+                return resolve();
+            }
+            return reject(number);
+        });
+    });
+
+gulp.task('doc', function(done) {
+    return doc().then(_ => done());
+});
+
 const compile = babelOpts => {
     var tsResult = tsProject
         .src()
@@ -38,6 +59,7 @@ const compile = babelOpts => {
         .pipe(sourcemaps.init())
         .pipe(tsProject());
     var babelResult = tsResult.js
+        .pipe(gulp.dest(`./${tsProject.config.compilerOptions.outDir}`))
         .pipe(plumber())
         .pipe(babel(babelOpts))
         .pipe(sourcemaps.write('./'));
@@ -45,6 +67,17 @@ const compile = babelOpts => {
     return merge(tsResult.dts, babelResult)
         .pipe(plumber())
         .pipe(gulp.dest(`./${tsProject.config.compilerOptions.outDir}`));
+};
+
+const fixPaths = paths => {
+    let newPaths = {};
+    for (const key in paths) {
+        newPaths[key] = `./${tsProject.config.compilerOptions.outDir}/${
+            paths[key][0]
+        }`.replace('/*', '');
+    }
+    console.log(newPaths);
+    return newPaths;
 };
 
 gulp.task('parcel-library', function(done) {
@@ -70,6 +103,15 @@ gulp.task('build-app', function() {
             ],
             '@babel/preset-typescript',
         ],
+        plugins: [
+            [
+                'babel-plugin-module-resolver',
+                {
+                    root: [`./${tsProject.config.compilerOptions.outDir}`],
+                    alias: fixPaths(tsProject.config.compilerOptions.paths),
+                },
+            ],
+        ],
     });
 });
 
@@ -89,6 +131,13 @@ gulp.task('build-library', function() {
             '@babel/preset-typescript',
         ],
         plugins: [
+            [
+                'babel-plugin-module-resolver',
+                {
+                    root: [`./${tsProject.config.compilerOptions.outDir}`],
+                    alias: fixPaths(tsProject.config.compilerOptions.paths),
+                },
+            ],
             '@babel/plugin-transform-runtime',
             '@babel/plugin-transform-regenerator',
         ],
@@ -97,4 +146,4 @@ gulp.task('build-library', function() {
 
 gulp.task('library', gulp.series('build-library', 'parcel-library'));
 gulp.task('app', gulp.series('build-app', 'parcel-app'));
-gulp.task('default', gulp.series('app'));
+gulp.task('default', gulp.series('library'));
