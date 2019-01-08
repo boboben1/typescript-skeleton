@@ -7,6 +7,7 @@ var babel = require('gulp-babel');
 var sourcemaps = require('gulp-sourcemaps');
 var merge = require('merge-stream');
 var plumber = require('gulp-plumber');
+var fs = require('fs-extra');
 
 var spawn = require('child_process').spawn;
 
@@ -52,6 +53,56 @@ gulp.task('doc', function(done) {
     return doc().then(_ => done());
 });
 
+const pbjs = (...files) =>
+    new Promise((resolve, reject) => {
+        const parcel = spawn(
+            'pbjs',
+            [
+                '-t',
+                'static-module',
+                '-w',
+                'es6',
+                '-o',
+                'types/compiled.js',
+                ...files,
+            ],
+            {
+                shell: true,
+            }
+        );
+
+        parcel.stderr.pipe(process.stderr);
+        parcel.stdout.pipe(process.stdout);
+
+        parcel.once('exit', number => {
+            if (number == 0) {
+                return resolve();
+            }
+            return reject(number);
+        });
+    });
+
+const pbts = _ =>
+    new Promise((resolve, reject) => {
+        const parcel = spawn(
+            'pbts',
+            ['-o', 'types/compiled.d.ts', './types/compiled.js'],
+            {
+                shell: true,
+            }
+        );
+
+        parcel.stderr.pipe(process.stderr);
+        parcel.stdout.pipe(process.stdout);
+
+        parcel.once('exit', number => {
+            if (number == 0) {
+                return resolve();
+            }
+            return reject(number);
+        });
+    });
+
 const compile = babelOpts => {
     var tsResult = tsProject
         .src()
@@ -79,6 +130,35 @@ const fixPaths = paths => {
     console.log(newPaths);
     return newPaths;
 };
+
+/**
+ *
+ * @param {string} dir
+ * @returns {Array<string>}
+ */
+const walk = function(dir) {
+    var results = [];
+    var list = fs.readdirSync(dir);
+    list.forEach(function(file) {
+        file = dir + '/' + file;
+        var stat = fs.statSync(file);
+        if (stat && stat.isDirectory()) {
+            /* Recurse into a subdirectory */
+            results = results.concat(walk(file));
+        } else {
+            /* Is a file */
+            results.push(file);
+        }
+    });
+    return results;
+};
+
+gulp.task('proto', function(done) {
+    const protoFiles = walk('./proto').filter(v => v.endsWith('.proto'));
+    pbjs(...protoFiles)
+        .then(() => pbts())
+        .then(() => done());
+});
 
 gulp.task('parcel-library', function(done) {
     parcelBuild('build/index.js', 'node').then(_ => done());
